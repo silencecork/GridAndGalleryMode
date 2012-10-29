@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="Gallery">
+    	<attr name="center_zoomable" format="boolean" />
+    	<attr name="center_zoom_ratio" format="float" />
+		<attr name="rotatable" format="boolean" />
+		<attr name="rotate_degrees" format="integer"/>
+		<attr name="enable_alpha" format="boolean" />
+    </declare-styleable>
+</resources>

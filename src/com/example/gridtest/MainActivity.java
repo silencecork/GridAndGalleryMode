@@ -1,7 +1,12 @@
 package com.example.gridtest;
 
+import java.util.HashMap;
+
+import com.aphidmobile.flip.FlipViewController;
+
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -22,6 +27,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.AbsListView;
+import android.widget.Adapter;
+import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemClickListener;
 import android.widget.BaseAdapter;
 import android.widget.GridView;
 import android.widget.ImageView;
@@ -32,12 +40,16 @@ public class MainActivity extends Activity {
 	private static final int MSG_INIT = 0;
 	private static final int MSG_UPDATE = 1;
 	private GridView mGridView;
-	private Gallery mGallery;
+	private FencyGallery mGallery;
 	private PhotoAdapter mAdapter;
+	private FlipViewController mFlipper;
 	private Thread mLoadPhotoThread;
 	
 	private static final int MODE_GRID = 0x00010000;
 	private static final int MODE_GALLERY = 0x00020000;
+	
+	private static final int REQUEST_VIEW_FLIP = 0x01000000;
+	
 	private int mMode;
 	
 	private Cursor mCursor;
@@ -49,7 +61,7 @@ public class MainActivity extends Activity {
 				if (mAdapter != null) {
 					mAdapter.updateCursor(mCursor);
 					mAdapter.notifyDataSetChanged();
-				}
+				} 
 			} else if (msg.what == MSG_UPDATE) {
 				int pos = msg.arg1;
 				Bitmap b = (Bitmap) msg.obj;
@@ -67,25 +79,56 @@ public class MainActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.activity_main);
         
+        ViewGroup root = (ViewGroup) findViewById(R.id.root);
+        
+        mFlipper = new FlipViewController(this);
+        root.addView(mFlipper);
+        
         mGridView = (GridView) findViewById(R.id.gridView1);
         mGridView.setHorizontalSpacing(3);
 	    mGridView.setVerticalSpacing(3);
-        mGallery = (Gallery) findViewById(R.id.gallery);
-        mGallery.setUnselectedAlpha(180.f);
-        changeMode(MODE_GALLERY);
-        
-        mLoadPhotoThread = new Thread(new Runnable() {
+	    mGridView.setSelector(R.drawable.grid_selector);
+	    mGridView.setOnItemClickListener(new OnItemClickListener() {
 
 			@Override
-			public void run() {
-				mCursor = LoadPhotoExecutor.getPhotoCursor(getContentResolver());
-				mHandler.sendEmptyMessage(MSG_INIT);
+			public void onItemClick(AdapterView<?> parent, View v, int pos, long id) {
+				changeToFlipper(pos);
+			}
+	    	
+	    });
+	    
+        mGallery = (FencyGallery) findViewById(R.id.gallery);
+        mGallery.setOnItemClickListener(new OnItemClickListener() {
+
+        	@Override
+			public void onItemClick(AdapterView<?> parent, View v, int pos, long id) {
+				changeToFlipper(pos);
 			}
         	
-        }); 
-        mLoadPhotoThread.start();
+        });
+        changeMode(MODE_GRID);
+        
+        createCursorLoader();
     }
     
+    @Override
+    protected void onResume() {
+    	super.onResume();
+//    	if (mCursor != null) {
+//    		mHandler.sendEmptyMessage(MSG_INIT);
+//    	}
+    	if (mAdapter != null) {
+    		mAdapter.resume();
+    	}
+    }
+    
+    @Override
+    protected void onPause() {
+    	super.onPause();
+    	if (mAdapter != null) {
+    		mAdapter.pause();
+    	}
+    }
     
     @Override
 	protected void onDestroy() {
@@ -100,6 +143,19 @@ public class MainActivity extends Activity {
 			mCursor.close();
 		}
 	}
+    
+    private void createCursorLoader() {
+    	mLoadPhotoThread = new Thread(new Runnable() {
+
+			@Override
+			public void run() {
+				mCursor = LoadPhotoExecutor.getPhotoCursor(getContentResolver());
+				mHandler.sendEmptyMessage(MSG_INIT);
+			}
+        	
+        }); 
+        mLoadPhotoThread.start();
+    }
 
 	@Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -114,8 +170,21 @@ public class MainActivity extends Activity {
     	}
 		return super.onOptionsItemSelected(item);
 	}
+    
+    @Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    	if (requestCode == REQUEST_VIEW_FLIP && data != null) {
+    		int pos = data.getIntExtra("pos", -1);
+    		if (pos < 0) return;
+    		if (getMode() == MODE_GALLERY && mGallery != null) {
+    			mGallery.setSelection(pos);
+    		} else if (getMode() == MODE_GRID && mGridView != null) {
+    			mGridView.setSelection(pos);
+    		}
+    	}
+	}
 
-    private void changeMode(int mode) {
+	private void changeMode(int mode) {
     	synchronized(MainActivity.this) {
     		mMode = mode;
     	}
@@ -126,19 +195,22 @@ public class MainActivity extends Activity {
 		if (mCursor != null) {
 	    	mAdapter.updateCursor(mCursor);
 	    }
+		
 		if (mode == MODE_GRID) {
 			mGallery.setVisibility(View.GONE);
+			mFlipper.setVisibility(View.GONE);
 			int pos = mGallery.getSelectedItemPosition();
 			mGridView.setVisibility(View.VISIBLE);
 		    mGridView.setAdapter(mAdapter);
 		    mGridView.setSelection(pos);
 		} else if (mode == MODE_GALLERY) {
 			mGridView.setVisibility(View.GONE);
+			mFlipper.setVisibility(View.GONE);
 			int pos = mGridView.getFirstVisiblePosition();
 			mGallery.setVisibility(View.VISIBLE);
 			mGallery.setAdapter(mAdapter);
 			mGallery.setSelection(pos);
-		}
+		} 
 	}
     
     private synchronized int getMode() {
@@ -146,8 +218,14 @@ public class MainActivity extends Activity {
     		return mMode;
     	}
     }
-
-    private LruCache<Integer, Bitmap> mCache = new LruCache<Integer, Bitmap>(1024 * 1024 * 8) {
+    
+    private void changeToFlipper(int pos) {
+    	Intent intent = new Intent(this, FlipActivity.class);
+		intent.putExtra("pos", pos);
+		startActivityForResult(intent, REQUEST_VIEW_FLIP);
+    }
+    
+	public static LruCache<Integer, Bitmap> sBitmapCache = new LruCache<Integer, Bitmap>(1024 * 1024 * 8) {
 
 		@Override
 		protected int sizeOf(Integer key, Bitmap value) {
@@ -159,7 +237,6 @@ public class MainActivity extends Activity {
 				Bitmap oldValue, Bitmap newValue) {
 			synchronized(oldValue) {
 				if (oldValue != null) {
-					Log.i("LruCache", "recycle " + key);
 					oldValue.recycle();
 				}
 			}
@@ -175,7 +252,7 @@ public class MainActivity extends Activity {
     	private static final int GALLERY_ITEM_WIDTH = 250;
     	private static final int GALLERY_ITEM_HEIGHT = 250;
     	
-    	ViewGroup.LayoutParams mGeneralParams;
+    	private ViewGroup.LayoutParams mGeneralParams;
     	
     	private SparseArray<ImageView> mViewCache;
     	private Bitmap mDefaultBitmap;
@@ -186,8 +263,8 @@ public class MainActivity extends Activity {
 			@Override
 			public void onBitampBack(int pos, Bitmap b) {
 				if (b != null) {
-            		synchronized (mCache) {
-            			mCache.put(pos, b);
+            		synchronized (sBitmapCache) {
+            			sBitmapCache.put(pos, b);
             		}
             		if (mSaveThread != null && !mCursor.isClosed()) {
             			mSaveThread.addTask(mCursor.getString(mCursor.getColumnIndexOrThrow(Images.ImageColumns.DATA)), 
@@ -200,7 +277,8 @@ public class MainActivity extends Activity {
     	
     	public PhotoAdapter(int mode) {
     		mGeneralParams = (mode == MODE_GRID) ? new AbsListView.LayoutParams(GRID_SIZE, GRID_SIZE) : 
-    			new android.widget.Gallery.LayoutParams(GALLERY_ITEM_WIDTH, GALLERY_ITEM_HEIGHT)  ;
+    			(mode == MODE_GALLERY) ? new android.widget.Gallery.LayoutParams(GALLERY_ITEM_WIDTH, GALLERY_ITEM_HEIGHT) :
+    				null;
     		
     		mViewCache = new SparseArray<ImageView>();
     		mDefaultBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.photo_load);
@@ -234,7 +312,6 @@ public class MainActivity extends Activity {
     			imageView.invalidate();
     		}
     	}
-    	
 
 		@Override
 		public int getCount() {
@@ -260,13 +337,14 @@ public class MainActivity extends Activity {
 			
 			if (imageView == null) {
 				imageView = (getMode() == MODE_GRID) ? new SecureImageView(MainActivity.this) : 
-					new ImageViewEx(MainActivity.this);
+					(getMode() == MODE_GALLERY) ? new ImageViewEx(MainActivity.this) : new ImageView(MainActivity.this);
 				synchronized (mViewCache) {
 					mViewCache.put(pos, imageView);
 				}
 			}
-			
-			imageView.setLayoutParams(mGeneralParams);
+			if (mGeneralParams != null) {
+				imageView.setLayoutParams(mGeneralParams);
+			}
 			imageView.setScaleType(ScaleType.CENTER_CROP);
 			
 			if (mCursor == null) {
@@ -274,9 +352,9 @@ public class MainActivity extends Activity {
 			}
 			
 			Bitmap b = null;
-			if (mCache != null) {
-				synchronized (mCache) {
-					b = mCache.get(pos);
+			if (sBitmapCache != null) {
+				synchronized (sBitmapCache) {
+					b = sBitmapCache.get(pos);
 				}
 			}
 			
@@ -305,12 +383,33 @@ public class MainActivity extends Activity {
 			}
 		}
 		
+		public void pause() {
+			if (mDecodeThreads != null) {
+				for (int i = 0; i < THREAD_COUNT; i++) {
+					mDecodeThreads[i].pauseThread();
+				}
+			}
+			if (mSaveThread != null) {
+				mSaveThread.pauseThread();
+			}
+		}
+		
+		public void resume() {
+			if (mDecodeThreads != null) {
+				for (int i = 0; i < THREAD_COUNT; i++) {
+					mDecodeThreads[i].resumeThread();
+				}
+			}
+			if (mSaveThread != null) {
+				mSaveThread.resumeThread();
+			}
+		}
 		
 		public void clearAndStopAll() {
 			stop();
-			if (mCache != null) {
-				for (int i = 0; i < mCache.size(); i++) {
-					mCache.remove(i);
+			if (sBitmapCache != null) {
+				for (int i = 0; i < sBitmapCache.size(); i++) {
+					sBitmapCache.remove(i);
 				}
 			}
 		}

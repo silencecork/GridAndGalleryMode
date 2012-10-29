@@ -16,6 +16,7 @@ public class DecodeThread extends Thread {
 
 	private LinkedList<Integer> mTaskList;
 	private boolean mDone;
+	private boolean mPause;
 	private LoadPhotoExecutor mExecutor;
 	private Context mContext;
 	private Cursor mCursor;
@@ -33,7 +34,6 @@ public class DecodeThread extends Thread {
 	}
 
 	public void addTask(Integer k) {
-		System.out.println("add task " + k);
 		synchronized (mTaskList) {
 			mTaskList.addFirst(k);
 		}
@@ -49,6 +49,20 @@ public class DecodeThread extends Thread {
 			DecodeThread.this.notify();
 		}
 	}
+	
+	public void pauseThread() {
+		mPause = true;
+		synchronized (DecodeThread.this) {
+			DecodeThread.this.notify();
+		}
+	}
+	
+	public void resumeThread() {
+		mPause = false;
+		synchronized (DecodeThread.this) {
+			DecodeThread.this.notify();
+		}
+	}
 
 	public void run() {
 		android.os.Process
@@ -56,7 +70,7 @@ public class DecodeThread extends Thread {
 		while (!mDone) {
 			synchronized (DecodeThread.this) {
 				DecodeThread.this.notify();
-				if (mTaskList == null || mTaskList.size() == 0) {
+				if (mTaskList == null || mTaskList.size() == 0 || mPause) {
 					try {
 						DecodeThread.this.wait();
 					} catch (InterruptedException ex) {

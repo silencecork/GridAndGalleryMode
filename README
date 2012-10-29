@@ -1,1 +1,4 @@
 This is a demo to show how to use grid view and gallery (customized special gallery) of Android. It loads all your photo on memory cards.
+This is easy to understad. 
+Bedises, it need to use FlipLibrary which provided by openaphid. 
+(https://github.com/openaphid/android-flip/tree/master/FlipView/FlipLibrary)

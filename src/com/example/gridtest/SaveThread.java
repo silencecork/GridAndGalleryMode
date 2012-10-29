@@ -15,6 +15,7 @@ class SaveThread extends Thread {
 
 	private LinkedList<SaveTask> mTaskList;
 	private boolean mDone;
+	private boolean mPause;
 	public static final String CACHE_DIR = Environment.getExternalStorageDirectory()
 			.getPath() + File.separatorChar + "my_cache" + File.separatorChar;
 
@@ -50,6 +51,21 @@ class SaveThread extends Thread {
 
 	public void stopThread() {
 		mDone = true;
+		mTaskList.clear();
+		synchronized (SaveThread.this) {
+			SaveThread.this.notify();
+		}
+	}
+	
+	public void pauseThread() {
+		mPause = true;
+		synchronized (SaveThread.this) {
+			SaveThread.this.notify();
+		}
+	}
+	
+	public void resumeThread() {
+		mPause = false;
 		synchronized (SaveThread.this) {
 			SaveThread.this.notify();
 		}
@@ -59,7 +75,7 @@ class SaveThread extends Thread {
 		while (!mDone) {
 			synchronized (SaveThread.this) {
 				SaveThread.this.notify();
-				if (mTaskList == null || mTaskList.size() == 0) {
+				if (mTaskList == null || mTaskList.size() == 0 || mPause) {
 					try {
 						SaveThread.this.wait();
 					} catch (InterruptedException ex) {
